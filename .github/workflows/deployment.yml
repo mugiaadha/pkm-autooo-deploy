@@ -51,10 +51,9 @@ jobs:
 
       - name: Fix SPA 404 Routing for GitHub Pages
         run: |
-          # Sesuaikan path dist jika menggunakan Angular 17+ (biasanya ./dist/dafina-app/browser)
           DIST_PATH="./dist/dafina-app"
-          if [ -d "$DIST_PATH/browser" ]; then
-            DIST_PATH="$DIST_PATH/browser"
+          if [ -d "$DIST_PATH" ]; then
+            DIST_PATH="$DIST_PATH"
           fi
 
           # Copy index.html ke 404.html agar direct refresh SPA tidak 404
