@@ -58,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-build
-          path: ./dist/puskesmas-app/
+          path: ./dist/dafina-app/
           retention-days: 1
 
   deploy:
@@ -74,7 +74,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: app-build
-          path: ./dist/puskesmas-app/
+          path: ./dist/dafina-app/
 
       - name: Setup SSH Key
         env:
@@ -102,5 +102,5 @@ jobs:
                 -o ConnectionAttempts=5 \
                 -o ServerAliveInterval=15 \
                 -o ServerAliveCountMax=6" \
-            ./dist/puskesmas-app/ \
+            ./dist/dafina-app/ \
             "$SSH_USER@$SSH_HOST:$TARGET_DIR"

@@ -1,4 +1,4 @@
-name: Build & Deploy to GitHub Pages
+name: Build & Deploy Angular to GitHub Pages
 
 on:
   workflow_dispatch:
@@ -6,16 +6,14 @@ on:
     branches:
       - main
 
-# Izin yang diperlukan untuk deploy ke GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Batasi agar workflow tidak tabrakan jika ada push bersamaan
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true # Batalkan build lama jika ada commit baru yang masuk secara cepat
 
 jobs:
   build:
@@ -24,27 +22,54 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js & Cache NPM
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 20
+          cache: "npm" # Menggunakan cache npm bawaan GitHub Actions
+
+      # Caching kompilasi Angular CLI (.angular/cache)
+      - name: Cache Angular Build
+        uses: actions/cache@v4
+        with:
+          path: .angular/cache
+          key: ${{ runner.os }}-angular-cache-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-angular-cache-${{ hashFiles('package-lock.json') }}-
+            ${{ runner.os }}-angular-cache-
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-      - name: Build app
+      - name: Build Angular app
         env:
           NODE_OPTIONS: --openssl-legacy-provider
-        run: npm run build -- --configuration production
+        run: |
+          # Ambil nama repo untuk base-href (otomatis cocok untuk GitHub Pages)
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          npm run build -- --configuration production --base-href "/${REPO_NAME}/"
 
-      - name: Setup Pages
+      - name: Fix SPA 404 Routing for GitHub Pages
+        run: |
+          # Sesuaikan path dist jika menggunakan Angular 17+ (biasanya ./dist/dafina-app/browser)
+          DIST_PATH="./dist/dafina-app"
+          if [ -d "$DIST_PATH/browser" ]; then
+            DIST_PATH="$DIST_PATH/browser"
+          fi
+
+          # Copy index.html ke 404.html agar direct refresh SPA tidak 404
+          if [ -f "$DIST_PATH/index.html" ]; then
+            cp "$DIST_PATH/index.html" "$DIST_PATH/404.html"
+          fi
+          echo "FINAL_DIST=$DIST_PATH" >> $GITHUB_ENV
+
+      - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Arahkan langsung ke folder hasil kompilasi HTML/JS/CSS
-          path: "./dist/puskesmas-app"
+          path: ${{ env.FINAL_DIST }}
 
   deploy:
     environment:

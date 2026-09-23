@@ -26,7 +26,7 @@ jobs:
 
       - name: Compress build files to tar.gz
         run: |
-          tar -czf bundle.tar.gz -C ./dist/puskesmas-app .
+          tar -czf bundle.tar.gz -C ./dist/dafina-app .
 
       - name: Fetch list of branches
         id: get-branches
