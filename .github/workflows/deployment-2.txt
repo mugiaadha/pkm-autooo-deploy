@@ -1,0 +1,85 @@
+name: Build & Deploy workflow
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build app
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider
+        run: npm run build -- --configuration production
+
+      - name: Compress build files to tar.gz
+        run: |
+          tar -czf bundle.tar.gz -C ./dist/puskesmas-app .
+
+      - name: Fetch list of branches
+        id: get-branches
+        run: |
+          json=$(curl -sS --max-time 10 https://emr.clenicapp.com/api/get-branches) || true
+          if [ -z "${json}" ] || ! echo "${json}" | jq -e . >/dev/null 2>&1; then
+            echo "Error: Gagal mengambil data branches dari API."
+            exit 1
+          fi
+          branches=$(echo "${json}" | jq -r '.data | join(" ")')
+          echo "branches=$branches" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH Key
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload Bundle & Distribute on Server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          BRANCH_LIST: ${{ steps.get-branches.outputs.branches }}
+        run: |
+          # 1. Upload file arsip ke server
+          scp -P "$SSH_PORT" -i ~/.ssh/id_rsa bundle.tar.gz "$SSH_USER@$SSH_HOST:/tmp/bundle.tar.gz"
+
+          # 2. Eksekusi ekstraksi dan distribusi lokal di VPS
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" bash -s << EOF
+            set -e
+
+            echo "Mempersiapkan direktori rilis sementara..."
+            rm -rf /tmp/app_release
+            mkdir -p /tmp/app_release
+            tar -xzf /tmp/bundle.tar.gz -C /tmp/app_release
+
+            BRANCHES="$BRANCH_LIST"
+
+            echo "Mendistribusikan file ke seluruh subdomain..."
+            for folder in \$BRANCHES; do
+              TARGET_DIR="/var/www/clenicapp.com/\${folder}.clenicapp.com/v1"
+              mkdir -p "\$TARGET_DIR"
+              rsync -a --delete /tmp/app_release/ "\$TARGET_DIR/"
+              echo "✓ Berhasil deploy: \${folder}.clenicapp.com"
+            done
+
+            echo "Membersihkan file sementara..."
+            rm -rf /tmp/bundle.tar.gz /tmp/app_release
+            echo "Deployment selesai untuk seluruh cabang!"
+          EOF
